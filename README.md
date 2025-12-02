@@ -93,7 +93,7 @@ Eurostat-Energy-ETL-Pipeline/
 
 ---
 
-# 🔄 **ETL Workflow**
+# **ETL Workflow**
 
 The ETL pipeline (`etl/main.py`) performs:
 
@@ -126,14 +126,14 @@ The ETL pipeline (`etl/main.py`) performs:
 
 The project includes a full interactive dashboard (`app/streamlit_app.py`) with:
 
-### ** Overview Tab**
+### **Overview Tab**
 
 * Year selector
 * Total EU Gross Electricity Production
 * Top 10 GEP-producing countries
 * Interactive bar charts
 
-### ** Country Explorer**
+### **Country Explorer**
 
 * Choose any country
 * View historical GEP trend
@@ -145,7 +145,7 @@ The project includes a full interactive dashboard (`app/streamlit_app.py`) with:
   * Households
 * Line charts, pie charts, tables
 
-### ** Heatmap Tab**
+### **Heatmap Tab**
 
 * Heatmap of GEP across all years × all countries
 * Visual exploration of long-term patterns
@@ -168,15 +168,15 @@ cd Eurostat-Energy-ETL-Pipeline
 ## 2. Create a `.env` file in the project root
 
 ```
-DB_USER=energy_user
-DB_PASS=energy_pass
+DB_USER=<DB_USER>
+DB_PASS=<DB_PASS>
 DB_HOST=db
 DB_PORT=5432
-DB_NAME=energy
-POSTGRES_PASSWORD=energy_pass
+DB_NAME=<DB_NAME>
+POSTGRES_PASSWORD=<POSTGRES_PASSWORD>
 
-PGADMIN_DEFAULT_EMAIL=admin@admin.com
-PGADMIN_DEFAULT_PASSWORD=admin
+PGADMIN_DEFAULT_EMAIL=<PGADMIN_DEFAULT_EMAIL>@admin.com
+PGADMIN_DEFAULT_PASSWORD=<PGADMIN_DEFAULT_PASSWORD>
 ```
 
 **This file must NOT be pushed to GitHub.**
@@ -202,7 +202,7 @@ Docker Compose will:
 
 Once everything starts, open:
 
-👉 **[http://localhost:8501](http://localhost:8501)**
+**[http://localhost:8501](http://localhost:8501)**
 
 ---
 
@@ -230,7 +230,7 @@ outputs/
 
 ---
 
-# 🔍 **Insights from the Data**
+# **Insights from the Data**
 
 Some example findings (depending on the latest API update):
 
@@ -251,6 +251,9 @@ This project is fully open for learning and experimentation.
 # **Contact**
 
 For questions or collaboration:
-**Your Name / GitHub / Email**
+
+**Nitish Kumar Pandey** 
+
+**Linkedin: [linkedin.com/in/nitishkpandey](https://www.linkedin.com/in/nitishkpandey/)**
 
 ---
