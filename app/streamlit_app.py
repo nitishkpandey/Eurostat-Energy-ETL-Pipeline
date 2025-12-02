@@ -5,9 +5,14 @@ from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import plotly.express as px
 
-# -----------------------------
+# ISO country codes for EU member states (EU27)
+EU_COUNTRY_CODES = {
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR",
+    "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL",
+    "PL", "PT", "RO", "SK", "SI", "ES", "SE"
+}
+
 # Load .env
-# -----------------------------
 load_dotenv()
 
 DB_USER = os.getenv("DB_USER", "energy_user")
@@ -22,9 +27,7 @@ CONN_STR = f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_N
 def get_engine():
     return create_engine(CONN_STR)
 
-# -----------------------------
 # Reusable cached queries
-# -----------------------------
 @st.cache_data
 def load_countries():
     q = """
@@ -79,27 +82,25 @@ def load_sector_data(country, year):
     return pd.read_sql(q, get_engine(), params={"country": country, "year": year})
 
 @st.cache_data
-def load_heatmap_data():
-    q = """
-        SELECT country_name,
-               EXTRACT(YEAR FROM time)::INT AS year,
-               value
+def load_heatmap_data() -> pd.DataFrame:
+    query = """
+        SELECT
+            country_code,
+            country_name,
+            EXTRACT(YEAR FROM time)::INT AS year,
+            value
         FROM observations
         WHERE indicator_code = 'GEP';
     """
-    return pd.read_sql(q, get_engine())
+    return pd.read_sql(query, get_engine())
 
-# -----------------------------
 # Streamlit Layout
-# -----------------------------
 st.set_page_config(page_title="Eurostat Energy Dashboard", layout="wide")
 st.title("⚡ Eurostat Energy Analytics Dashboard")
 
 tab1, tab2, tab3 = st.tabs(["🏠 Overview", "🌍 Country Explorer", "🔥 Heatmap"])
 
-# -----------------------------
 # TAB 1 — OVERVIEW
-# -----------------------------
 with tab1:
     st.header("Gross Electricity Production (GEP) Overview")
 
@@ -126,9 +127,7 @@ with tab1:
 
     st.dataframe(df_year.head(20))
 
-# -----------------------------
 # TAB 2 — COUNTRY EXPLORER
-# -----------------------------
 with tab2:
     st.header("Country Explorer")
 
@@ -166,20 +165,85 @@ with tab2:
         st.plotly_chart(fig_pie, use_container_width=True)
         st.dataframe(df_sector)
 
-# -----------------------------
 # TAB 3 — HEATMAP
-# -----------------------------
 with tab3:
     st.header("GEP Heatmap")
 
     df_heat = load_heatmap_data()
-    pivot = df_heat.pivot_table(index="country_name", columns="year", values="value", aggfunc="sum")
 
-    fig_hm = px.imshow(
-        pivot,
-        labels={"x": "Year", "y": "Country", "color": "GEP"},
-        aspect="auto",
-        title="GEP Heatmap (Countries × Years)"
-    )
-    st.plotly_chart(fig_hm, use_container_width=True)
-    st.dataframe(pivot)
+    if df_heat.empty:
+        st.warning("No GEP data available for heatmap.")
+    else:
+        # --- Filters ---
+        col_filters_1, col_filters_2 = st.columns([2, 1])
+
+        with col_filters_1:
+            eu_only = st.checkbox("Show only EU member states", value=True)
+
+        with col_filters_2:
+            sort_by_total = st.checkbox("Sort by total GEP (descending)", value=True)
+
+        # Apply EU-only filter
+        if eu_only:
+            df_heat = df_heat[df_heat["country_code"].isin(EU_COUNTRY_CODES)]
+
+        # Available countries after EU filter
+        all_countries = sorted(df_heat["country_name"].unique().tolist())
+
+        selected_countries = st.multiselect(
+            "Select countries",
+            options=all_countries,
+            default=all_countries,
+        )
+
+        if not selected_countries:
+            st.info("Please select at least one country.")
+        else:
+            df_heat = df_heat[df_heat["country_name"].isin(selected_countries)]
+
+            # Year range slider based on filtered data
+            year_min = int(df_heat["year"].min())
+            year_max = int(df_heat["year"].max())
+            year_start, year_end = st.slider(
+                "Select year range",
+                min_value=year_min,
+                max_value=year_max,
+                value=(year_min, year_max),
+            )
+
+            df_heat = df_heat[
+                (df_heat["year"] >= year_start) & (df_heat["year"] <= year_end)
+            ]
+
+            # Pivot: rows = countries, columns = years, values = GEP
+            pivot = df_heat.pivot_table(
+                index="country_name",
+                columns="year",
+                values="value",
+                aggfunc="sum",
+            ).fillna(0)
+
+            # Sort by total GEP across selected years
+            if sort_by_total:
+                totals = pivot.sum(axis=1)
+                pivot = pivot.assign(_total=totals).sort_values(
+                    "_total", ascending=False
+                ).drop(columns="_total")
+
+            st.subheader("GEP Heatmap (Countries × Years)")
+            st.caption(
+                "Filters above control which countries and years are included. "
+                "Sorting is based on total GEP over the selected years."
+            )
+
+            fig_hm = px.imshow(
+                pivot,
+                labels={"x": "Year", "y": "Country", "color": "GEP"},
+                aspect="auto",
+            )
+
+            st.plotly_chart(fig_hm, use_container_width=True)
+            st.dataframe(
+                pivot.reset_index().rename(columns={"country_name": "country"}),
+                use_container_width=True,
+            )
