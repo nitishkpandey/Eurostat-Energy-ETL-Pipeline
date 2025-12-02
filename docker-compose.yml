@@ -20,10 +20,10 @@ services:
     container_name: eurostat_etl
     depends_on:
       - db
-    environment:
-      - PYTHONUNBUFFERED=1
     env_file:
       - .env
+    environment:
+      - PYTHONUNBUFFERED=1
     volumes:
       - .:/app
     command: >
@@ -36,6 +36,22 @@ services:
         python viz/viz_utils.py
       "
 
+  streamlit:
+    build: .
+    container_name: eurostat_streamlit
+    depends_on:
+      - db
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    command: >
+      streamlit run app/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+
   pgadmin:
     image: dpage/pgadmin4
     container_name: pgadmin
@@ -47,17 +63,6 @@ services:
     environment:
       - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
       - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
-    depends_on:
-      - db
-
-  streamlit:
-    build: .
-    container_name: eurostat_streamlit
-    command: streamlit run app/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
-    ports:
-      - "8501:8501"
-    env_file:
-      - .env
     depends_on:
       - db
 
