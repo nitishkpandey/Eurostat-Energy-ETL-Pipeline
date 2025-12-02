@@ -202,7 +202,7 @@ Docker Compose will:
 
 Once everything starts, open:
 
-👉 **[http://localhost:8501](http://localhost:8501)**
+**[http://localhost:8501](http://localhost:8501)**
 
 ---
 
@@ -230,7 +230,7 @@ outputs/
 
 ---
 
-# 🔍 **Insights from the Data**
+# **Insights from the Data**
 
 Some example findings (depending on the latest API update):
 
@@ -251,6 +251,6 @@ This project is fully open for learning and experimentation.
 # **Contact**
 
 For questions or collaboration:
-**Your Name / GitHub / Email**
+**Nitish Kumar Pandey / linkedin: linkedin.com/in/nitishkpandey **
 
 ---
