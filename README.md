@@ -253,6 +253,7 @@ This project is fully open for learning and experimentation.
 For questions or collaboration:
 
 **Nitish Kumar Pandey** 
-**Linkedin: linkedin.com/in/nitishkpandey**
+
+**Linkedin: [linkedin.com/in/nitishkpandey](https://www.linkedin.com/in/nitishkpandey/)**
 
 ---
