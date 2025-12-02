@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import plotly.express as px
 
 # -----------------------------
-# Load .env (works locally/Docker)
+# Load .env
 # -----------------------------
 load_dotenv()
 
