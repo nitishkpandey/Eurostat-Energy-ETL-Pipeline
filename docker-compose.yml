@@ -52,3 +52,14 @@ services:
 
 volumes:
   pgdata:
+
+  streamlit:
+    build: .
+    container_name: streamlit_app
+    command: streamlit run app/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    depends_on:
+      - db
+    env_file:
+      - .env
