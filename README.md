@@ -1,141 +1,256 @@
-# Eurostat Energy ETL Pipeline
+#  **Eurostat Energy ETL & Analytics Platform**
 
-## Overview
+A fully Dockerized **ETL + Data Warehouse + Analytics Dashboard** built using Python, PostgreSQL, and Streamlit.
+This project extracts real-world European energy statistics from the **Eurostat REST API**, loads them into a Postgres database, and serves a modern interactive dashboard for exploring electricity production and final energy consumption across Europe.
 
-This project is a Dockerized ETL pipeline built in Python that extracts public energy statistics from the [Eurostat REST API](https://ec.europa.eu/eurostat/web/main/home), transforms the data, and loads it into a PostgreSQL database. It also generates visualizations to highlight trends in gross electricity production across EU countries.
+This is a complete, end-to-end, industry-style data engineering project showcasing:
 
+* Real API ingestion
+* ETL pipeline (Extract → Transform → Load)
+* Containerization (Docker Compose)
+* Data warehousing (PostgreSQL)
+* Analytics dashboard (Streamlit + Plotly)
+* Automated visualizations (Matplotlib/Seaborn)
 
-## Technical Stack
-- Python 3.11
-- Pandas / SQLAlchemy
-- Matplotlib / Seaborn
-- PostgreSQL 16
-- Docker & Docker Compose
-- Eurostat REST API
-- PGAdmin (for Database inspection)
+---
 
+#  **Tech Stack**
 
-## Eurostat REST API overview
-The data is retreived from the Eurostat API, which is publicly accessible without authentication.
-Following is the dataset overview:
-- **nrg_cb_e**: Supply, transformation and consumption of electricity.
-     #### Extracted Indicator:
-     `Gross electricity production (GEP)`
-- **ten00124**: Final energy consumption by sector.
-     #### Extracted Indicators:
-     `FC_E` – Final consumption – energy use
-  
-     `FC_IND_E` – Industry sector
-  
-     `FC_TRA_E` – Transport sector
-  
-     `FC_OTH_CP_E` – Commercial & public services
-  
-     `FC_OTH_HH_E` – Households
+### **Backend & ETL**
 
+* Python 3.11
+* Pandas
+* SQLAlchemy
+* Requests
+* Python-dotenv
+* Docker & Docker Compose
 
-## Project Structure
-`etl/main.py` – ETL pipeline script
+### **Storage**
 
-`viz/viz_utils.py` – Generates visualizations
+* PostgreSQL 16
+* PGAdmin 4
 
-`outputs/` – Contains output .png charts
+### **Analytics**
 
-`postgres/init.sql` – Database schema initialization
+* Streamlit
+* Plotly
+* Matplotlib / Seaborn
 
-`.env` – Environment variables (excluded from GitHub)
+---
 
-`.gitignore` – Prevents committing the .env file storing secrets, caches, etc.
+#  **Eurostat API — Data Sources**
 
-`docker-compose.yml` – Defines and orchestrates services
+The ETL pipeline retrieves official European energy statistics from the **Eurostat REST API** (no authentication required).
 
-`Dockerfile` – Builds ETL container
+### **Datasets Used**
 
-`requirements.txt` – Python dependencies
+####  **1. nrg_cb_e** — Electricity Supply / Transformation / Consumption
 
+Extracted Indicator:
 
-## Extract Transform Load (ETL) Flow
+* `GEP` — Gross Electricity Production
 
-1. **Extract**:
-   - Connects to Eurostat API.
-   - Retrieves energy datasets `nrg_cb_e` and `ten00124`.
+####  **2. ten00124** — Final Energy Consumption by Sector
 
-2. **Transform**:
-   - Parses metadata, indicators, dimensions.
-   - Converts time fields to proper date format.
-   - Handles missing and duplicate data.
+Extracted Indicators:
 
-3. **Load**:
-   - Inserts data into a normalized PostgreSQL schema.
-   - Ensures idempotency via `ON CONFLICT` clauses.
-   - Supports Command Line Interface (CLI) mode for `append`, `truncate` and `full-refresh`. By default it is set to `full-refresh`. 
+* `FC_E` — Final Energy Consumption (All sectors)
+* `FC_IND_E` — Industry
+* `FC_TRA_E` — Transport
+* `FC_OTH_CP_E` — Commercial & Public Services
+* `FC_OTH_HH_E` — Households
 
+These indicators become the foundation for country-level analytics and energy dashboards.
 
-## Visualizations
+---
 
-Three types of plots are generated in the `outputs/` directory:
+#  **Project Structure**
 
-- **Line Plot**: Gross electricity production trend for Germany (`DE`)
-- **Bar Chart**: Top 10 countries by Gross ELectricity Production (GEP)
-- **Heatmap**: Year-wise heatmap of energy production across countries
+```
+Eurostat-Energy-ETL-Pipeline/
+│
+├── app/
+│   └── streamlit_app.py          # Interactive analytics dashboard
+│
+├── etl/
+│   └── main.py                   # ETL pipeline (extract → transform → load)
+│
+├── viz/
+│   └── viz_utils.py              # Automated visualization generator
+│
+├── outputs/                      # Auto-generated charts
+│
+├── postgres/
+│   └── init.sql                  # Creates DB, roles, privileges
+│
+├── Dockerfile                    # Base image for ETL + Streamlit containers
+├── docker-compose.yml            # Orchestrates DB, ETL, PGAdmin, Streamlit
+│
+├── requirements.txt              # Python dependencies
+├── .env                          # Database credentials (not committed)
+└── .gitignore                    # Prevents committing sensitive files
+```
 
+---
 
-## Setup Instructions (Using Docker)
+# 🔄 **ETL Workflow**
 
-### 1. Clone the Repository
-<pre>
-git clone https://github.com/your-username/your-repo-name.git
-cd your-repo-name
-</pre>
+The ETL pipeline (`etl/main.py`) performs:
 
-### 2. Environment Variables
+### **1. Extract**
 
-This project uses a .env file to manage environment variables such as database credentials securely.
+* Fetches JSON responses from Eurostat API endpoints
+* Reads metadata, dimensions, indicators, units, and time series values
 
-Important: The .env file is not included in the repository (.gitignore protects it). The .env file must be created locally before running the project.
+### **2. Transform**
 
-### 3. Security & Git Ignore
+* Converts Eurostat's multi-dimensional response into a clean tabular format
+* Resolves indicator labels and country names
+* Deduplicates observations
+* Casts year → proper DATE
+* Adds load timestamps
 
-`.env` is used to store credentials and never pushed to GitHub
+### **3. Load**
 
-`.gitignore` is used to not push the .env file to GitHub
+* Creates the `observations` table (if not exists)
+* Supports 3 modes:
 
-### 4. Running the ETL Pipeline via Docker Compose
+  * `full-refresh` (drop + recreate + load)
+  * `truncate`
+  * `append`
+* Loads all observations into PostgreSQL via SQLAlchemy
 
-Open the terminal and navigate to the project directory.
+---
 
-Run the full Dockerized setup via:
+#  **Streamlit Analytics Dashboard**
 
-<pre>
-docker-compose up --build
-</pre>
+The project includes a full interactive dashboard (`app/streamlit_app.py`) with:
 
-The above script will:
+### ** Overview Tab**
 
-- Wait for PostgreSQL to be ready
+* Year selector
+* Total EU Gross Electricity Production
+* Top 10 GEP-producing countries
+* Interactive bar charts
 
-- Run the ETL process (main.py)
+### ** Country Explorer**
 
-- Generate visualizations (viz_utils.py) and save under outputs/
+* Choose any country
+* View historical GEP trend
+* Sector-wise final energy consumption:
 
-To remove volumes/data:
+  * Industry
+  * Transport
+  * Public/Commercial
+  * Households
+* Line charts, pie charts, tables
 
-<pre>
-docker-compose down -v
-</pre>
+### ** Heatmap Tab**
 
-## Observations from the visualisations
+* Heatmap of GEP across all years × all countries
+* Visual exploration of long-term patterns
 
-- Gross Electricity Production (GEP) is highest in EU aggregates (EU27_2020, EA20), reflecting regional consolidation of data.
+Everything is fully dynamic and rendered using **Plotly**.
 
-- Germany's energy production peaked around 2017 but has shown a declining trend in recent years.
-  
-- Some smaller or non-EU countries have sparse or missing data points, highlighting reporting differences across nations.
+---
 
-##### Note: These observations are derived from data pulled at execution time and may vary as the Eurostat API updates in real-time.
+# **Setup Instructions (Docker)**
 
+## 1. Clone the repository
 
+```bash
+git clone https://github.com/your-username/Eurostat-Energy-ETL-Pipeline.git
+cd Eurostat-Energy-ETL-Pipeline
+```
 
+---
 
+## 2. Create a `.env` file in the project root
 
+```
+DB_USER=energy_user
+DB_PASS=energy_pass
+DB_HOST=db
+DB_PORT=5432
+DB_NAME=energy
+POSTGRES_PASSWORD=energy_pass
 
+PGADMIN_DEFAULT_EMAIL=admin@admin.com
+PGADMIN_DEFAULT_PASSWORD=admin
+```
+
+**This file must NOT be pushed to GitHub.**
+
+---
+
+## 3. Run the full stack
+
+```bash
+docker compose up --build
+```
+
+Docker Compose will:
+
+1. Start PostgreSQL
+2. Start PGAdmin (access at [http://localhost:5050](http://localhost:5050))
+3. Run the ETL pipeline (loads API data into Postgres)
+4. Run the Streamlit dashboard server
+
+---
+
+## 4. Access the dashboard
+
+Once everything starts, open:
+
+👉 **[http://localhost:8501](http://localhost:8501)**
+
+---
+
+## 5. Clean up containers & data
+
+```bash
+docker compose down -v
+```
+
+---
+
+# **Auto-Generated Visualizations**
+
+In addition to the dashboard, the script `viz/viz_utils.py` generates:
+
+* Line chart: GEP trend for Germany
+* Bar chart: Top 10 GEP countries
+* Heatmap: GEP across years and countries
+
+Saved in:
+
+```
+outputs/
+```
+
+---
+
+# 🔍 **Insights from the Data**
+
+Some example findings (depending on the latest API update):
+
+* EU aggregates (EU27_2020, EA20) show the highest recorded GEP
+* Germany’s energy production peaked around ~2017 and declined slightly afterward
+* Some smaller/non-EU countries report sparse data
+* Sectoral consumption patterns vary sharply across Europe
+
+---
+
+# **Contributions**
+
+PRs, issues, and suggestions are welcome!
+This project is fully open for learning and experimentation.
+
+---
+
+# **Contact**
+
+For questions or collaboration:
+**Your Name / GitHub / Email**
+
+---
