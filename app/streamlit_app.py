@@ -1,249 +1,157 @@
-import os
-import pandas as pd
 import streamlit as st
-from sqlalchemy import create_engine, text
-from dotenv import load_dotenv
-import plotly.express as px
+import pandas as pd
+from viz.viz_utils import plot_timeseries, plot_bar_top_countries, plot_heatmap
+from ml.forecast_utils import run_forecast
+from llm_app.chatbot import answer_question
+from sqlalchemy import create_engine
+import os
 
-# ISO country codes for EU member states (EU27)
-EU_COUNTRY_CODES = {
-    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR",
-    "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL",
-    "PL", "PT", "RO", "SK", "SI", "ES", "SE"
-}
+# -----------------------------------------------------------
+# PAGE CONFIG
+# -----------------------------------------------------------
+st.set_page_config(
+    page_title="Eurostat Energy Intelligence",
+    layout="wide",
+)
 
-# Load .env
-load_dotenv()
+st.title("Eurostat Energy Intelligence Platform")
+st.markdown("A unified ETL + Analytics + Forecasting + RAG Insights system.")
 
-DB_USER = os.getenv("DB_USER", "energy_user")
-DB_PASS = os.getenv("DB_PASS", "energy_pass")
-DB_HOST = os.getenv("DB_HOST", "db")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "energy")
-
-CONN_STR = f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-
-@st.cache_resource
+# -----------------------------------------------------------
+# DB CONNECTION
+# -----------------------------------------------------------
 def get_engine():
-    return create_engine(CONN_STR)
+    db_user = os.getenv("POSTGRES_USER", "postgres")
+    db_pass = os.getenv("POSTGRES_PASSWORD", "postgres")
+    db_host = os.getenv("POSTGRES_HOST", "db")
+    db_port = os.getenv("POSTGRES_PORT", "5432")
+    db_name = os.getenv("POSTGRES_DB", "energy_db")
 
-# Reusable cached queries
+    url = f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+    return create_engine(url)
+
+engine = get_engine()
+
+# Load main table
 @st.cache_data
-def load_countries():
-    q = """
-    SELECT DISTINCT country_code, country_name
-    FROM observations
-    WHERE country_code IS NOT NULL
-    ORDER BY country_name;
-    """
-    return pd.read_sql(q, get_engine())
+def load_data():
+    df = pd.read_sql("SELECT * FROM observations", engine)
+    df["year"] = pd.to_datetime(df["time"]).dt.year
+    return df
 
-@st.cache_data
-def load_years():
-    q = """
-    SELECT DISTINCT EXTRACT(YEAR FROM time)::INT AS year
-    FROM observations
-    ORDER BY year;
-    """
-    df = pd.read_sql(q, get_engine())
-    return df["year"].tolist()
+data = load_data()
 
-@st.cache_data
-def load_gep_for_year(year):
-    q = text("""
-        SELECT country_name, value
-        FROM observations
-        WHERE indicator_code = 'GEP'
-          AND EXTRACT(YEAR FROM time) = :year
-        ORDER BY value DESC;
-    """)
-    return pd.read_sql(q, get_engine(), params={"year": year})
+# -----------------------------------------------------------
+# UI TABS
+# -----------------------------------------------------------
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Overview Dashboard",
+    "Data Explorer",
+    "Forecasting",
+    "AI Insights (RAG)"
+])
 
-@st.cache_data
-def load_gep_timeseries(country):
-    q = text("""
-        SELECT EXTRACT(YEAR FROM time)::INT AS year, value
-        FROM observations
-        WHERE indicator_code = 'GEP'
-          AND country_code = :country
-        ORDER BY year;
-    """)
-    return pd.read_sql(q, get_engine(), params={"country": country})
-
-@st.cache_data
-def load_sector_data(country, year):
-    q = text("""
-        SELECT indicator_code, value
-        FROM observations
-        WHERE country_code = :country
-          AND EXTRACT(YEAR FROM time) = :year
-          AND indicator_code IN ('FC_IND_E','FC_TRA_E','FC_OTH_CP_E','FC_OTH_HH_E');
-    """)
-    return pd.read_sql(q, get_engine(), params={"country": country, "year": year})
-
-@st.cache_data
-def load_heatmap_data() -> pd.DataFrame:
-    query = """
-        SELECT
-            country_code,
-            country_name,
-            EXTRACT(YEAR FROM time)::INT AS year,
-            value
-        FROM observations
-        WHERE indicator_code = 'GEP';
-    """
-    return pd.read_sql(query, get_engine())
-
-# Streamlit Layout
-st.set_page_config(page_title="Eurostat Energy Dashboard", layout="wide")
-st.title("⚡ Eurostat Energy Analytics Dashboard")
-
-tab1, tab2, tab3 = st.tabs(["🏠 Overview", "🌍 Country Explorer", "🔥 Heatmap"])
-
-# TAB 1 — OVERVIEW
+# -----------------------------------------------------------
+# TAB 1 — OVERVIEW DASHBOARD
+# -----------------------------------------------------------
 with tab1:
-    st.header("Gross Electricity Production (GEP) Overview")
-
-    years = load_years()
-    selected_year = st.slider("Select year", min(years), max(years), max(years))
-
-    df_year = load_gep_for_year(selected_year)
+    st.subheader("Energy Indicators Overview")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.metric("Total EU GEP", f"{df_year['value'].sum():,.0f}")
+        st.markdown("### Top Countries by Gross Electricity Production (Latest Year)")
+        latest_year = data["year"].max()
+        df_latest = data[data["year"] == latest_year]
+        st.bar_chart(df_latest.groupby("geo")["value"].mean().sort_values(ascending=False).head(10))
 
     with col2:
-        top = df_year.iloc[0]
-        st.metric("Top Country", f"{top['country_name']} ({top['value']:.0f})")
+        st.markdown("### Year-over-Year Trend (Germany - GEP)")
+        germany_gep = data[(data["geo"] == "DE") & (data["indicator"] == "nrg_cb_e")]
+        st.line_chart(germany_gep[["year", "value"]].set_index("year"))
 
-    st.subheader("Top 10 Countries")
-    fig = px.bar(df_year.head(10), x="country_name", y="value",
-                 labels={"value": "GEP", "country_name": "Country"},
-                 title=f"Top 10 GEP Producers in {selected_year}")
-    fig.update_layout(xaxis_tickangle=-45)
-    st.plotly_chart(fig, use_container_width=True)
+    st.markdown("---")
+    st.markdown("This dashboard gives a quick overview of the energy landscape across the EU.")
 
-    st.dataframe(df_year.head(20))
-
-# TAB 2 — COUNTRY EXPLORER
+# -----------------------------------------------------------
+# TAB 2 — DATA EXPLORER
+# -----------------------------------------------------------
 with tab2:
-    st.header("Country Explorer")
+    st.subheader("Interactive Data Explorer")
 
-    countries = load_countries()
-    country_name = st.selectbox("Select a country", countries["country_name"])
-    country_code = countries[countries["country_name"] == country_name]["country_code"].iloc[0]
+    countries = sorted(data["geo"].unique())
+    indicators = sorted(data["indicator"].unique())
 
-    st.subheader(f"GEP Trend for {country_name}")
-    df_ts = load_gep_timeseries(country_code)
+    col1, col2, col3 = st.columns(3)
 
-    if df_ts.empty:
-        st.warning("No GEP data available.")
-    else:
-        fig_ts = px.line(df_ts, x="year", y="value", markers=True,
-                         labels={"year": "Year", "value": "GEP"})
-        st.plotly_chart(fig_ts, use_container_width=True)
+    with col1:
+        selected_geo = st.selectbox("Select Country", countries)
 
-    st.subheader("Sectoral Final Energy Consumption")
-    year_select = st.selectbox("Select year", years[::-1])
+    with col2:
+        selected_indicator = st.selectbox("Select Indicator", indicators)
 
-    df_sector = load_sector_data(country_code, year_select)
-
-    if df_sector.empty:
-        st.info("No sectoral consumption data available.")
-    else:
-        df_sector["sector"] = df_sector["indicator_code"].map({
-            "FC_IND_E": "Industry",
-            "FC_TRA_E": "Transport",
-            "FC_OTH_CP_E": "Commercial & Public",
-            "FC_OTH_HH_E": "Households"
-        })
-
-        fig_pie = px.pie(df_sector, names="sector", values="value",
-                         title=f"Energy Consumption Breakdown ({year_select})")
-        st.plotly_chart(fig_pie, use_container_width=True)
-        st.dataframe(df_sector)
-
-# TAB 3 — HEATMAP
-with tab3:
-    st.header("Gross Electricity Production (GEP) Heatmap")
-
-    df_heat = load_heatmap_data()
-
-    if df_heat.empty:
-        st.warning("No GEP data available for heatmap.")
-    else:
-        # --- Filters ---
-        col_filters_1, col_filters_2 = st.columns([2, 1])
-
-        with col_filters_1:
-            eu_only = st.checkbox("Show only EU member states", value=True)
-
-        with col_filters_2:
-            sort_by_total = st.checkbox("Sort by total GEP (descending)", value=True)
-
-        # Apply EU-only filter
-        if eu_only:
-            df_heat = df_heat[df_heat["country_code"].isin(EU_COUNTRY_CODES)]
-
-        # Available countries after EU filter
-        all_countries = sorted(df_heat["country_name"].unique().tolist())
-
-        selected_countries = st.multiselect(
-            "Select countries",
-            options=all_countries,
-            default=all_countries,
+    with col3:
+        year_range = st.slider(
+            "Select Year Range",
+            int(data["year"].min()), int(data["year"].max()),
+            (2000, 2023)
         )
 
-        if not selected_countries:
-            st.info("Please select at least one country.")
-        else:
-            df_heat = df_heat[df_heat["country_name"].isin(selected_countries)]
+    df_filtered = data[
+        (data["geo"] == selected_geo) &
+        (data["indicator"] == selected_indicator) &
+        (data["year"].between(year_range[0], year_range[1]))
+    ]
 
-            # Year range slider based on filtered data
-            year_min = int(df_heat["year"].min())
-            year_max = int(df_heat["year"].max())
-            year_start, year_end = st.slider(
-                "Select year range",
-                min_value=year_min,
-                max_value=year_max,
-                value=(year_min, year_max),
-            )
+    st.markdown("### Time Series Plot")
+    st.line_chart(df_filtered[["year", "value"]].set_index("year"))
 
-            df_heat = df_heat[
-                (df_heat["year"] >= year_start) & (df_heat["year"] <= year_end)
-            ]
+    st.markdown("### Top Countries Comparison")
+    top_df = data[
+        (data["indicator"] == selected_indicator) &
+        (data["year"].between(year_range[0], year_range[1]))
+    ]
+    st.bar_chart(top_df.groupby("geo")["value"].mean().sort_values(ascending=False).head(10))
 
-            # Pivot: rows = countries, columns = years, values = GEP
-            pivot = df_heat.pivot_table(
-                index="country_name",
-                columns="year",
-                values="value",
-                aggfunc="sum",
-            ).fillna(0)
+# -----------------------------------------------------------
+# TAB 3 — FORECASTING
+# -----------------------------------------------------------
+with tab3:
+    st.subheader("Forecasting Engine (XGBoost + ES)")
 
-            # Sort by total GEP across selected years
-            if sort_by_total:
-                totals = pivot.sum(axis=1)
-                pivot = pivot.assign(_total=totals).sort_values(
-                    "_total", ascending=False
-                ).drop(columns="_total")
+    country = st.selectbox("Select Country for Forecast", countries, key="f1")
+    indicator = st.selectbox("Select Indicator for Forecast", indicators, key="f2")
 
-            st.subheader("GEP Heatmap (Countries × Years)")
-            st.caption(
-                "Filters above control which countries and years are included. "
-                "Sorting is based on total GEP over the selected years."
-            )
+    if st.button("Run Forecast"):
+        with st.spinner("Training models..."):
+            forecast_df, model_used = run_forecast(data, country, indicator)
 
-            fig_hm = px.imshow(
-                pivot,
-                labels={"x": "Year", "y": "Country", "color": "GEP"},
-                aspect="auto",
-            )
+        st.success(f"Model used: {model_used}")
+        st.line_chart(forecast_df.set_index("year"))
 
-            st.plotly_chart(fig_hm, use_container_width=True)
-            st.dataframe(
-                pivot.reset_index().rename(columns={"country_name": "country"}),
-                use_container_width=True,
-            )
+        st.write("Forecast Data:")
+        st.dataframe(forecast_df)
+
+# -----------------------------------------------------------
+# TAB 4 — AI INSIGHTS (RAG)
+# -----------------------------------------------------------
+with tab4:
+    st.subheader("AI Insights Assistant")
+
+    st.write("Ask questions like:")
+    st.markdown("""
+    - Which country's GEP is rising fastest?  
+    - Which region has declining final energy consumption?  
+    - Show countries with stable GEP.  
+    """)
+
+    user_q = st.text_input("Your question:")
+
+    if st.button("Ask AI"):
+        with st.spinner("Thinking..."):
+            response = answer_question(user_q)
+
+        st.markdown("### 💡 Answer")
+        st.markdown(response["answer"])
+
+        st.caption(f"Mode: {response['mode']}")
