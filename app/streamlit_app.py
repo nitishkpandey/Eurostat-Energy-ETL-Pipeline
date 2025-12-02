@@ -1,10 +1,13 @@
-import streamlit as st
+import os
+
 import pandas as pd
-from viz.viz_utils import plot_timeseries, plot_bar_top_countries, plot_heatmap
+import streamlit as st
+from sqlalchemy import create_engine
+from sqlalchemy.exc import ProgrammingError
+
 from ml.forecast_utils import run_forecast
 from llm_app.chatbot import answer_question
-from sqlalchemy import create_engine
-import os
+
 
 # -----------------------------------------------------------
 # PAGE CONFIG
@@ -17,39 +20,63 @@ st.set_page_config(
 st.title("Eurostat Energy Intelligence Platform")
 st.markdown("A unified ETL + Analytics + Forecasting + RAG Insights system.")
 
+
 # -----------------------------------------------------------
 # DB CONNECTION
 # -----------------------------------------------------------
 def get_engine():
-    db_user = os.getenv("POSTGRES_USER", "postgres")
-    db_pass = os.getenv("POSTGRES_PASSWORD", "postgres")
-    db_host = os.getenv("POSTGRES_HOST", "db")
-    db_port = os.getenv("POSTGRES_PORT", "5432")
-    db_name = os.getenv("POSTGRES_DB", "energy_db")
+    # Use the same DB_* variables as ETL
+    db_user = os.getenv("DB_USER", "energy_user")
+    db_pass = os.getenv("DB_PASS", "energy_pass")
+    db_host = os.getenv("DB_HOST", "db")
+    db_port = os.getenv("DB_PORT", "5432")
+    db_name = os.getenv("DB_NAME", "energy")
 
     url = f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
     return create_engine(url)
 
+
 engine = get_engine()
 
-# Load main table
+
 @st.cache_data
 def load_data():
-    df = pd.read_sql("SELECT * FROM observations", engine)
+    try:
+        df = pd.read_sql("SELECT * FROM observations", engine)
+    except ProgrammingError:
+        # Table does not exist yet
+        return pd.DataFrame()
+
+    # Year column
     df["year"] = pd.to_datetime(df["time"]).dt.year
+
+    # Alias columns to what the rest of the app expects
+    df["geo"] = df["country_code"]
+    df["indicator"] = df["indicator_code"]
+
     return df
 
+
 data = load_data()
+
+if data.empty:
+    st.warning(
+        "No data found in the `observations` table yet.\n\n"
+        "Wait for the ETL container to finish, then refresh this page."
+    )
+    st.stop()
 
 # -----------------------------------------------------------
 # UI TABS
 # -----------------------------------------------------------
-tab1, tab2, tab3, tab4 = st.tabs([
-    "Overview Dashboard",
-    "Data Explorer",
-    "Forecasting",
-    "AI Insights (RAG)"
-])
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "Overview Dashboard",
+        "Data Explorer",
+        "Forecasting",
+        "AI Insights",
+    ]
+)
 
 # -----------------------------------------------------------
 # TAB 1 — OVERVIEW DASHBOARD
@@ -59,19 +86,48 @@ with tab1:
 
     col1, col2 = st.columns(2)
 
+    # LEFT: Top GEP countries (latest year)
     with col1:
         st.markdown("### Top Countries by Gross Electricity Production (Latest Year)")
         latest_year = data["year"].max()
-        df_latest = data[data["year"] == latest_year]
-        st.bar_chart(df_latest.groupby("geo")["value"].mean().sort_values(ascending=False).head(10))
 
+        df_latest = data[
+            (data["year"] == latest_year)
+            & (data["dataset_code"] == "nrg_cb_e")
+            & (data["indicator"] == "GEP")
+        ]
+
+        if not df_latest.empty:
+            top_gep = (
+                df_latest.groupby("geo")["value"]
+                .mean()
+                .sort_values(ascending=False)
+                .head(10)
+            )
+            st.bar_chart(top_gep)
+        else:
+            st.info("No GEP data available for the latest year.")
+
+    # RIGHT: Germany GEP trend
     with col2:
         st.markdown("### Year-over-Year Trend (Germany - GEP)")
-        germany_gep = data[(data["geo"] == "DE") & (data["indicator"] == "nrg_cb_e")]
-        st.line_chart(germany_gep[["year", "value"]].set_index("year"))
+
+        germany_gep = data[
+            (data["geo"] == "DE")
+            & (data["dataset_code"] == "nrg_cb_e")
+            & (data["indicator"] == "GEP")
+        ][["year", "value"]].drop_duplicates().set_index("year")
+
+        if not germany_gep.empty:
+            st.line_chart(germany_gep)
+        else:
+            st.info("No GEP data available for Germany.")
 
     st.markdown("---")
-    st.markdown("This dashboard gives a quick overview of the energy landscape across the EU.")
+    st.markdown(
+        "This dashboard provides a quick overview of key energy indicators across Europe."
+    )
+
 
 # -----------------------------------------------------------
 # TAB 2 — DATA EXPLORER
@@ -93,25 +149,39 @@ with tab2:
     with col3:
         year_range = st.slider(
             "Select Year Range",
-            int(data["year"].min()), int(data["year"].max()),
-            (2000, 2023)
+            int(data["year"].min()),
+            int(data["year"].max()),
+            (int(data["year"].min()), int(data["year"].max())),
         )
 
     df_filtered = data[
-        (data["geo"] == selected_geo) &
-        (data["indicator"] == selected_indicator) &
-        (data["year"].between(year_range[0], year_range[1]))
+        (data["geo"] == selected_geo)
+        & (data["indicator"] == selected_indicator)
+        & (data["year"].between(year_range[0], year_range[1]))
     ]
 
     st.markdown("### Time Series Plot")
-    st.line_chart(df_filtered[["year", "value"]].set_index("year"))
+    if not df_filtered.empty:
+        st.line_chart(df_filtered[["year", "value"]].set_index("year"))
+    else:
+        st.info("No data available for this combination of filters.")
 
-    st.markdown("### Top Countries Comparison")
+    st.markdown("### Top Countries Comparison (same indicator)")
     top_df = data[
-        (data["indicator"] == selected_indicator) &
-        (data["year"].between(year_range[0], year_range[1]))
+        (data["indicator"] == selected_indicator)
+        & (data["year"].between(year_range[0], year_range[1]))
     ]
-    st.bar_chart(top_df.groupby("geo")["value"].mean().sort_values(ascending=False).head(10))
+    if not top_df.empty:
+        top_countries = (
+            top_df.groupby("geo")["value"]
+            .mean()
+            .sort_values(ascending=False)
+            .head(10)
+        )
+        st.bar_chart(top_countries)
+    else:
+        st.info("No data available to compare countries for this indicator.")
+
 
 # -----------------------------------------------------------
 # TAB 3 — FORECASTING
@@ -119,18 +189,29 @@ with tab2:
 with tab3:
     st.subheader("Forecasting Engine (XGBoost + ES)")
 
+    # reuse countries & indicators from above
     country = st.selectbox("Select Country for Forecast", countries, key="f1")
     indicator = st.selectbox("Select Indicator for Forecast", indicators, key="f2")
 
     if st.button("Run Forecast"):
-        with st.spinner("Training models..."):
+        with st.spinner("Training models and generating forecast..."):
             forecast_df, model_used = run_forecast(data, country, indicator)
 
         st.success(f"Model used: {model_used}")
-        st.line_chart(forecast_df.set_index("year"))
+        if not forecast_df.empty:
+            # pivot so we get separate lines for historical vs forecast
+            plot_df = forecast_df.pivot_table(
+                index="year",
+                columns="type",
+                values="value",
+            )
+            st.line_chart(plot_df)
 
-        st.write("Forecast Data:")
-        st.dataframe(forecast_df)
+            st.write("Forecast Data:")
+            st.dataframe(forecast_df)
+        else:
+            st.info("Forecast could not be generated for this selection.")
+
 
 # -----------------------------------------------------------
 # TAB 4 — AI INSIGHTS (RAG)
@@ -138,20 +219,22 @@ with tab3:
 with tab4:
     st.subheader("AI Insights Assistant")
 
-    st.write("Ask questions like:")
-    st.markdown("""
+    st.write("Ask natural-language questions on top of the Eurostat energy data, e.g.:")
+    st.markdown(
+        """
     - Which country's GEP is rising fastest?  
-    - Which region has declining final energy consumption?  
-    - Show countries with stable GEP.  
-    """)
+    - Which regions have declining final energy consumption?  
+    - Show countries with stable GEP trends.  
+    """
+    )
 
     user_q = st.text_input("Your question:")
 
     if st.button("Ask AI"):
         with st.spinner("Thinking..."):
-            response = answer_question(user_q)
+            result = answer_question(user_q)
 
         st.markdown("### 💡 Answer")
-        st.markdown(response["answer"])
-
-        st.caption(f"Mode: {response['mode']}")
+        st.markdown(result["answer"])
+        if result.get("mode"):
+            st.caption(f"Mode: {result['mode']}")
